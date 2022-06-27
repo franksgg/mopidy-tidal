@@ -8,10 +8,10 @@ from mopidy import backend
 
 from pykka import ThreadingActor
 
-from tidalapi import Config, Session, Quality
+from tidaloauth4mopidy import Config, Session, Quality
 
 from mopidy_tidal import context, library, playback, playlists, Extension
-
+from mopidy_tidal.auth_http_server import start_oauth_deamon
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +19,13 @@ logger = logging.getLogger(__name__)
 class TidalBackend(ThreadingActor, backend.Backend):
     def __init__(self, config, audio):
         super(TidalBackend, self).__init__()
-        self._session = None
+        self.session = None
         self._config = config
-        context.set_config(self._config)
+        self._token = config['tidal']['token']
+        self._oauth = config['tidal']['oauth']
+        self._oauth_port = config['tidal'].get('oauth_port')
+        self.image_search = config['tidal']['image_search']
+        self.quality = self._config['tidal']['quality']
         self.playback = playback.TidalPlaybackProvider(audio=audio,
                                                        backend=self)
         self.library = library.TidalLibraryProvider(backend=self)
@@ -45,49 +49,9 @@ class TidalBackend(ThreadingActor, backend.Backend):
                 json.dump(data, outfile)
 
     def on_start(self):
-        quality = self._config['tidal']['quality']
-        logger.info("Connecting to TIDAL.. Quality = %s" % quality)
-        config = Config(quality=Quality(quality))
-        client_id = self._config['tidal']['client_id']
-        client_secret = self._config['tidal']['client_secret']
-
-        if (client_id and not client_secret) or (client_secret and not client_id):
-            logger.warn("Connecting to TIDAL.. always provide client_id and client_secret together")
-            logger.info("Connecting to TIDAL.. using default client id & client secret from python-tidal")
-
-        if client_id and client_secret:
-            logger.info("Connecting to TIDAL.. client id & client secret from config section are used")
-            config.client_id=client_id
-            config.api_token=client_id
-            config.client_secret=client_secret
-
-        if not client_id and not client_secret:
-            logger.info("Connecting to TIDAL.. using default client id & client secret from python-tidal")
-
-        self._session = Session(config)
-        # Always store tidal-oauth cache in mopidy core config data_dir
-        data_dir = Extension.get_data_dir(self._config)
-        oauth_file = os.path.join(data_dir, 'tidal-oauth.json')
-        try:
-            # attempt to reload existing session from file
-            with open(oauth_file) as f:
-                logger.info("Loading OAuth session from %s..." % oauth_file)
-                data = json.load(f)
-                self._session.load_oauth_session(
-                    data['session_id']['data'],
-                    data['token_type']['data'],
-                    data['access_token']['data'],
-                    data['refresh_token']['data']
-                )
-        except:
-            logger.info("Could not load OAuth session from %s" % oauth_file)
-
-        if not self._session.check_login():
-            logger.info("Creating new OAuth session...")
-            self.oauth_login_new_session(oauth_file)
-
-        if self._session.check_login():
-            logger.info("TIDAL Login OK")
-        else:
-            logger.info("TIDAL Login KO")
+        logger.info("Connecting to TIDAL.. Quality = %s" % self.quality)
+        config = Config(self._token, self._oauth, quality=Quality(self.quality))
+        self.session = Session(config)
+        if self._oauth_port:
+            start_oauth_deamon(self.session, self._oauth_port)
 

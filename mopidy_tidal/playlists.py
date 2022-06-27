@@ -9,6 +9,7 @@ from tidalapi.models import Playlist as TidalPlaylist
 from mopidy import backend
 from mopidy.models import Playlist as MopidyPlaylist, Ref
 
+from mopidy_tidal import display
 from mopidy_tidal import full_models_mappers
 from mopidy_tidal.helpers import to_timestamp
 from mopidy_tidal.lru_cache import LruCache
@@ -123,21 +124,22 @@ class TidalPlaylistsProvider(backend.PlaylistsProvider):
         return [Ref.track(uri=t.uri, name=t.name) for t in playlist.tracks]
 
     def create(self, name):
-        pass  # TODO
+        raise NotImplementedError
 
     def delete(self, uri):
-        pass  # TODO
+        raise NotImplementedError
 
     def lookup(self, uri):
         return self._get_or_refresh_playlist(uri)
 
     def refresh(self):
-        logger.info("Refreshing TIDAL playlists..")
-        session = self.backend._session
+        logger.debug("Refreshing TIDAL playlists..")
+        playlists = {}
+        session = self.backend.session
 
         plists = session.user.favorites.playlists()
         for pl in plists:
-            pl.name = "* " + pl.name
+            pl.name = display.fav_item(pl.name)
         # Append favourites to end to keep the tagged name if there are
         # duplicates
         plists = session.user.playlists() + plists
@@ -152,16 +154,15 @@ class TidalPlaylistsProvider(backend.PlaylistsProvider):
             # Cache miss case
             pl_tracks = session.get_playlist_tracks(pl.id)
             tracks = full_models_mappers.create_mopidy_tracks(pl_tracks)
-            mapped_playlists[uri] = MopidyPlaylist(
-                uri=uri,
-                name=pl.name,
-                tracks=tracks,
-                last_modified=to_timestamp(pl.last_updated),
-            )
+            pl_name = pl.name
+            playlists[uri] = Playlist(uri=uri,
+                                      name=display.tidal_item(pl_name),
+                                      tracks=tracks,
+                                      last_modified=pl.last_updated)
 
         self._playlists.update(mapped_playlists)
         backend.BackendListener.send('playlists_loaded')
         logger.info("TIDAL playlists refreshed")
 
     def save(self, playlist):
-        pass  # TODO
+        raise NotImplementedError
