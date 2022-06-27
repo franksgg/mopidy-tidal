@@ -12,14 +12,16 @@ def get_version(filename):
 
 
 setup(
-    name='Mopidy-Tidal',
+    name='Mopidy-TidalOAuth',
     version=get_version('mopidy_tidal/__init__.py'),
-    url='https://github.com/tehkillerbee/mopidy-tidal',
+    url='https://github.com/quodrum-glas/mopidy-tidal',
     license='Apache License, Version 2.0',
     author='Johannes Linde',
     author_email='josaksel.dk@gmail.com',
     description='Tidal music service integration',
-    long_description=open('README.md').read(),
+    maintainer='quodrumglas',
+    maintainer_email='quodrumglas@email.com',
+    long_description=open('README.rst').read(),
     packages=find_packages(exclude=['tests', 'tests.*']),
     zip_safe=False,
     include_package_data=True,
@@ -27,7 +29,7 @@ setup(
         'setuptools',
         'Mopidy >= 3.0',
         'Pykka >= 1.1',
-        'tidalapi >= 0.6.9,<0.7.0',
+        'tidaloauth4mopidy == 0.2.0',
         'requests >= 2.0.0',
         'spotipy >= 2.16.0'
     ],
@@ -41,6 +43,7 @@ setup(
         'Intended Audience :: End Users/Desktop',
         'License :: OSI Approved :: Apache Software License',
         'Operating System :: OS Independent',
+        'Programming Language :: Python :: 2',
         'Programming Language :: Python :: 3',
         'Topic :: Multimedia :: Sound/Audio :: Players',
     ],

@@ -6,37 +6,20 @@ import pathlib
 import pickle
 
 from collections import OrderedDict
-from typing import Optional
-
-from mopidy_tidal import context, Extension
+from functools import wraps
 
 
 logger = logging.getLogger(__name__)
 
 
 class LruCache(OrderedDict):
-    def __init__(self, max_size: Optional[int] = 1024, persist=True, directory=''):
-        """
-        :param max_size: Max size of the cache in memory. Set 0 or None for no
-            limit (default: 1024)
-        :param persist: Whether the cache should be persisted to disk
-            (default: True)
-        :param directory: If `persist=True`, store the cached entries in this
-            subfolder of the cache directory (default: '')
-        """
-        super().__init__(self)
-        if max_size:
-            assert max_size > 0, (
-                f'Invalid cache size: {max_size}'
-            )
-
-        self._max_size = max_size or 0
-        self._cache_dir = os.path.join(Extension.get_cache_dir(context.get_config()), directory)
-        self._persist = persist
-        if persist:
-            pathlib.Path(self._cache_dir).mkdir(parents=True, exist_ok=True)
-
+    def __init__(self, max_size=1024, default_value=''):
+        if max_size <= 0:
+            raise ValueError('Invalid size')
+        OrderedDict.__init__(self)
+        self._max_size = max_size
         self._check_limit()
+        self._default_value = default_value
 
     @property
     def max_size(self):
@@ -93,49 +76,7 @@ class LruCache(OrderedDict):
         if super().__contains__(key):
             del self[key]
 
-        super().__setitem__(key, value)
-        if self.persist and _sync_to_fs:
-            cache_file = self._cache_filename(key)
-            with open(cache_file, 'wb') as f:
-                pickle.dump(value, f)
-
-        self._check_limit()
-
-    def __contains__(self, key):
-        return self.get(key) is not None
-
-    def _reset_stored_entry(self, key):
-        cache_file = self._cache_filename(key)
-        if os.path.isfile(cache_file):
-            os.unlink(cache_file)
-
-    def get(self, key, default=None, *args, **kwargs):
-        try:
-            return self.__getitem__(key, *args, **kwargs)
-        except KeyError:
-            return default
-
-    def prune(self, *keys):
-        """
-        Delete the specified keys both from memory and disk.
-        """
-        for key in keys:
-            logger.debug(
-                'Pruning key %r from cache %s',
-                key, self.__class__.__name__
-            )
-
-            self._reset_stored_entry(key)
-            self.pop(key, None)
-
-    def prune_all(self):
-        """
-        Prune all the keys in the cache.
-        """
-        self.prune(*[*self.keys()])
-
-    def update(self, *args, **kwargs):
-        super().update(*args, **kwargs)
+        OrderedDict.__setitem__(self, key, self._default_value if value is None else value)
         self._check_limit()
 
     def _check_limit(self):
@@ -196,3 +137,37 @@ class SearchKey(object):
         """
         query.pop("track_no", None)
         return query
+
+
+track_cache = LruCache(max_size=1024*16)
+image_cache = LruCache(max_size=1024*16)
+
+
+def cache_track(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        item = func(*args, **kwargs)
+        track_cache[item.uri] = item
+        return item
+    return wrapper
+
+
+def cache_image(func):
+    @wraps(func)
+    def wrapper(tidal_item, *args, **kwargs):
+        item = func(tidal_item, *args, **kwargs)
+        image_cache[item.uri] = tidal_item.image
+        return item
+    return wrapper
+
+
+def with_cache(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        uri = args[-1]
+        track = track_cache.hit(uri)
+        if track is not None:
+            logger.debug("Found cached: %s", uri)
+            return [track]
+        return func(*args, **kwargs)
+    return wrapper
